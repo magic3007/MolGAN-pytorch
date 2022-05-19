@@ -5,24 +5,19 @@
 # Date              : 05.19.2022
 # Last Modified Date: 05.19.2022
 # Last Modified By  : Jing Mai <jingmai@pku.edu.cn>
-import torch
 from parse_config import get_GAN_config
-import random
 import os
 import json
-import numpy as np
 from utils import get_date_str, log_everything
+import pytorch_lightning
+import logging
+from plmodule_gan import MolGAN
+from plmodule_data import ChemDataModule
+import torch
 
-# Code from `PyTorch Lightning`
-def seed_everything(seed=42):
-    random.seed(seed)
-    os.environ['PYTHONHASHSEED'] = str(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+
+log = logging.getLogger(__name__)
+
 
 def main(config):
     # purify the config
@@ -44,25 +39,37 @@ def main(config):
         if not os.path.exists(dir):
             os.makedirs(dir)
 
-    # make all the path-like strings absolute
     if config.desc_ap_file is not None:
         config.desc_ap_file = os.path.abspath(config.desc_ap_file)
 
+    config.log_file_name = os.path.join(config.log_dir, config.abbr + '.log')
+
+    # config feasibility check
+    assert config.device == 'cpu' or torch.cuda.is_available(), 'GPU is not available'
+
+    # append the description to the file
     if config.desc_ap_file is not None:
         with open(config.desc_ap_file, 'a') as fp:
             fp.write(config.result_dir + ": " + config.desc + '\n')
 
+    # save the cli overwritten config
     if config.mode == 'train':
         with open(os.path.join(config.log_dir, 'json_cli_config.json'), 'w') as fp:
             json.dump(vars(config), fp=fp, indent=4)
 
-    # Miscellaneous
-    seed_everything(config.seed)
+    # setup logging to both file and stderr and set the logging format
+    log_everything(config.log_file_name)
 
-    # Logger
-    # https://stackoverflow.com/questions/9321741/printing-to-screen-and-writing-to-a-file-at-the-same-time
-    log_file_name = os.path.join(config.log_dir, config.abbr + '.log')
-    log_everything(log_file_name)
+    # Miscellaneous
+    pytorch_lightning.seed_everything(config.seed)
+
+    # TODO(Jing Mai): add Pytorch Lightning Data Module
+    # dm = ChemDataModule()
+    # model = MolGAN(
+    #     num_nodes=dm.num_nodes,
+    #     m_dim=dm.atom_num_types,
+    #     b_dim=dm.bond_num_types,
+    #     **vars(config))
 
 
 if __name__ == '__main__':

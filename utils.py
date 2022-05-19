@@ -10,6 +10,8 @@ import datetime
 import logging
 import time
 
+log = logging.getLogger(__name__)
+
 
 def get_date_str():
     return datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -30,7 +32,7 @@ def log_everything(log_file_name):
     # https://stackoverflow.com/questions/9321741/printing-to-screen-and-writing-to-a-file-at-the-same-time
     # https://stackoverflow.com/questions/13733552/logger-configuration-to-log-to-file-and-print-to-stdout
 
-    LOGFORMAT = '%(asctime)-12s | +%(delta)s | [%(levelname)-8s]: %(message)s'
+    LOGFORMAT = '%(asctime)-12s +%(delta)s %(pathname)s:%(lineno)d [%(levelname)-8s] - %(message)s'
     log_formatter = DeltaTimeFormatter(LOGFORMAT)
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
@@ -52,3 +54,5 @@ if __name__ == '__main__':
     logging.info("hello world!")
     time.sleep(1)
     logging.info("hello world!")
+    time.sleep(1)
+    log.info("hello world!")
