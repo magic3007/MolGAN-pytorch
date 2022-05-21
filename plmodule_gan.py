@@ -62,7 +62,7 @@ class MolGAN(LightningModule):
                                dropout_rate=dropout_rate)
 
         self.sampled_img_z = torch.randn(self.hparams.num_sampled_imgs, self.hparams.z_dim)
-        
+
         # Important: This property activates manual optimization.
         self.automatic_optimization = False
 
@@ -110,20 +110,29 @@ class MolGAN(LightningModule):
     def forward(self, z):
         return self.G(z)
 
-    def compute_gradient_penalty(self, real_samples, fake_samples):
+    def compute_gradient_penalty(self, real_edges, real_nodes, fake_edges, fake_nodes):
         """Calculates the gradient penalty loss for WGAN GP"""
+
+        def gp_norm(y, x):
+            dydx = torch.autograd.grad(outputs=y, inputs=x,
+                                       grad_outputs=torch.ones(y.size()).type_as(y),
+                                       create_graph=True, retain_graph=True, only_inputs=True)[0]
+            dydx = dydx.view(dydx.size(0), -1)
+            return ((dydx.norm(2, dim=1) - 1) ** 2).mean()
+
         # Random weight term for interpolation between real and fake samples
-        alpha = torch.rand(real_samples.size(0), 1, 1, 1).type_as(real_samples)
+        alpha = torch.rand(real_edges.size(0), 1, 1, 1).type_as(real_edges)
         # Get random interpolation between real and fake samples
-        interpolates = (alpha * real_samples + ((1 - alpha) * fake_samples)).requires_grad_(True)
-        d_interpolates = self.D(interpolates, None, None)
-        fake = d_interpolates.mean()
-        # Get gradient w.r.t. interpolates
-        gradients = torch.autograd.grad(outputs=fake, inputs=interpolates,
-                                        grad_outputs=torch.ones(fake.size()).type_as(fake),
-                                        create_graph=True, retain_graph=True, only_inputs=True)[0]
-        gradients = gradients.view(gradients.size(0), -1)
-        gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
+        edge_interpolates = (alpha * real_edges + ((1 - alpha) * fake_edges)).requires_grad_(True)
+        node_interpolates = (alpha * real_nodes + ((1 - alpha) * fake_nodes)).requires_grad_(True)
+
+        d_edge_interpolates, d_node_interpolates = self.D(edge_interpolates, None, node_interpolates)
+
+        edge_obj = d_edge_interpolates.mean()
+        node_obj = d_node_interpolates.mean()
+        edge_gp = gp_norm(edge_obj, edge_interpolates)
+        node_gp = gp_norm(node_obj, node_interpolates)
+        gradient_penalty = edge_gp + node_gp
         return gradient_penalty
 
     def on_train_start(self):
@@ -149,7 +158,7 @@ class MolGAN(LightningModule):
         logits_fake, features_fake = self.D(edges_hat, None, nodes_hat)
 
         # gradient penalty
-        grad_penalty = self.compute_gradient_penalty(A_onehot, edges_hat, nodes_hat)
+        grad_penalty = self.compute_gradient_penalty(A_onehot, X_onehot, edges_hat, nodes_hat)
 
         d_loss_real = torch.mean(logits_real)
         d_loss_fake = torch.mean(logits_fake)
@@ -238,16 +247,16 @@ class MolGAN(LightningModule):
             opt_g.step()
             self.manual_backward(gv_loss_dict['train_step_V'], opt_v)
             opt_v.step()
-        
+
         output = dict(d_loss_dict, **gv_loss_dict)
-        
-        return output     
-   
+
+        return output
+
     def training_epoch_end(self, outputs):
         keys = outputs[0].keys()
         avg_output = {k: torch.stack([x[k] for x in outputs]).mean().item() for k in keys}
         self.log_dict(avg_output, prefix='train_')
-    
+
     def _shared_eval_step(self, batch, batch_idx):
         mols, A_onehot, X_onehot = batch['mols'], batch['A_onehot'], batch['X_onehot']
         # sample noise
@@ -258,7 +267,7 @@ class MolGAN(LightningModule):
         score_dict = self.get_scores(node_logits, edge_logits, self.hparams.post_method)
         metrics = dict(d_loss_dict, **gv_loss_dict, **score_dict)
         return metrics
-    
+
     def validation_step(self, batch, batch_idx):
         metrics = self._shared_eval_step(batch, batch_idx)
         return metrics
@@ -270,16 +279,16 @@ class MolGAN(LightningModule):
     def _shared_eval_epoch_end(self, outputs):
         keys = outputs[0].keys()
         avg_output = {k: torch.stack([x[k] for x in outputs]).mean().item() for k in keys}
-        return avg_output 
-    
+        return avg_output
+
     def validation_epoch_end(self, outputs):
         metrics = self._shared_eval_epoch_end(outputs)
         self.log_dict(metrics, prefix='val_')
-        
+
     def test_epoch_end(self, outputs):
         metrics = self._shared_eval_epoch_end(outputs)
         self.log_dict(metrics, prefix='test_')
-    
+
     def configure_optimizers(self):
         self.opt_g = torch.optim.Adam(self.G.parameters(), lr=self.hparams.lr_g)
         self.opt_d = torch.optim.Adam(self.D.parameters(), lr=self.hparams.lr_d)
