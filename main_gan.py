@@ -12,9 +12,11 @@ from utils import get_date_str, log_everything
 import pytorch_lightning
 import logging
 from plmodule_gan import MolGAN
-from plmodule_data import ChemDataModule
+from data.sparse_molecular_dataset import SparseMolecularDataset
+from plmodule_data import SparseMolecularDataModule
+from pytorch_lightning import Trainer
+from pytorch_lightning.callbacks import ModelCheckpoint
 import torch
-
 
 log = logging.getLogger(__name__)
 
@@ -63,14 +65,31 @@ def main(config):
     # Miscellaneous
     pytorch_lightning.seed_everything(config.seed)
 
-    # TODO(Jing Mai): add Pytorch Lightning Data Module
-    # dm = ChemDataModule()
-    # model = MolGAN(
-    #     num_nodes=dm.num_nodes,
-    #     m_dim=dm.atom_num_types,
-    #     b_dim=dm.bond_num_types,
-    #     **vars(config))
+    data_set = SparseMolecularDataset()
+    data_set.load(config.data_dir)
+    dm = SparseMolecularDataModule(data_set=data_set,
+                                   batch_size=config.batch_size,
+                                   num_workers=config.num_workers)
+    model = MolGAN(
+        num_nodes=dm.vertexes,
+        m_dim=dm.atom_num_types,
+        b_dim=dm.bond_num_types,
+        **vars(config))
+    checkpoint_callback = ModelCheckpoint(dirpath=config.ckpt_dir)
+    trainer = Trainer(callbacks=[checkpoint_callback])
 
+    if config.mode == 'train':
+        trainer.fit(model, datamodule=dm,
+                    devices=config.devices,
+                    accelerator=config.accelerator,
+                    ckpt_path=config.resume_ckpt_path,
+                    check_val_every_n_epoch=config.check_val_every_n_epoch)
+    elif config.mode == 'test':
+        trainer.test(model, datamodule=dm,
+                     devices=config.devices,
+                     accelerator=config.accelerator,
+                     ckpt_path=config.resume_ckpt_path)
+                
 
 if __name__ == '__main__':
     config = get_GAN_config()
