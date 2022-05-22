@@ -62,9 +62,9 @@ def main(config):
     # Miscellaneous
     pytorch_lightning.seed_everything(config.seed)
 
-    data_set = SparseMolecularDataset()
-    data_set.load(config.data_dir)
-    dm = SparseMolecularDataModule(data_set=data_set,
+    data = SparseMolecularDataset()
+    data.load(config.data_dir)
+    dm = SparseMolecularDataModule(data=data,
                                    batch_size=config.batch_size,
                                    num_workers=config.num_workers)
     model = MolGAN(

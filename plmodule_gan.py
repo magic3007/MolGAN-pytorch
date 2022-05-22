@@ -28,7 +28,7 @@ class MolGAN(LightningModule):
                  b_dim,
                  dropout_rate,
                  data_module: SparseMolecularDataModule,
-                 num_sampled_img,
+                 num_sampled_imgs,
                  post_method,
                  *args, **kwargs):
         """ MolGAN model.
@@ -47,7 +47,7 @@ class MolGAN(LightningModule):
         # network
         self.G = Generator(conv_dims=g_conv_dims,
                            z_dim=z_dim,
-                           num_nodes=num_nodes,
+                           vertexes=num_nodes,
                            b_dim=b_dim,
                            m_dim=m_dim,
                            dropout_rate=dropout_rate)
