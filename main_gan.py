@@ -46,9 +46,6 @@ def main(config):
 
     config.log_file_name = os.path.join(config.log_dir, config.abbr + '.log')
 
-    # config feasibility check
-    assert config.device == 'cpu' or torch.cuda.is_available(), 'GPU is not available'
-
     # append the description to the file
     if config.desc_ap_file is not None:
         with open(config.desc_ap_file, 'a') as fp:
@@ -74,6 +71,7 @@ def main(config):
         num_nodes=dm.vertexes,
         m_dim=dm.atom_num_types,
         b_dim=dm.bond_num_types,
+        data_module=dm,
         **vars(config))
     checkpoint_callback = ModelCheckpoint(dirpath=config.ckpt_dir)
     trainer = Trainer(callbacks=[checkpoint_callback])
