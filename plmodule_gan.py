@@ -48,15 +48,15 @@ class MolGAN(LightningModule):
         self.G = Generator(conv_dims=g_conv_dims,
                            z_dim=z_dim,
                            vertexes=num_nodes,
-                           b_dim=b_dim,
-                           m_dim=m_dim,
+                           edges=b_dim,
+                           nodes=m_dim,
                            dropout_rate=dropout_rate)
         # TODO(Jing Mai): Why we use `b_dim-1`?
-        self.D = Discriminator(conv_dims=d_conv_dims,
+        self.D = Discriminator(conv_dim=d_conv_dims,
                                b_dim=b_dim-1,
                                m_dim=m_dim,
                                dropout_rate=dropout_rate)
-        self.V = Discriminator(conv_dims=d_conv_dims,
+        self.V = Discriminator(conv_dim=d_conv_dims,
                                b_dim=b_dim-1,
                                m_dim=m_dim,
                                dropout_rate=dropout_rate)

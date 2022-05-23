@@ -46,6 +46,9 @@ def main(config):
 
     config.log_file_name = os.path.join(config.log_dir, config.abbr + '.log')
 
+    # config feasibility check
+    #assert config.device == 'cpu' or torch.cuda.is_available(), 'GPU is not available'
+
     # append the description to the file
     if config.desc_ap_file is not None:
         with open(config.desc_ap_file, 'a') as fp:
@@ -62,11 +65,12 @@ def main(config):
     # Miscellaneous
     pytorch_lightning.seed_everything(config.seed)
 
-    data = SparseMolecularDataset()
-    data.load(config.data_dir)
-    dm = SparseMolecularDataModule(data=data,
+    data_set = SparseMolecularDataset()
+    data_set.load(config.data_dir)
+    dm = SparseMolecularDataModule(data=data_set,
                                    batch_size=config.batch_size,
-                                   num_workers=config.num_workers)
+                                   num_workers=config.num_workers,
+                                   metric=config.metric)
     model = MolGAN(
         num_nodes=dm.vertexes,
         m_dim=dm.atom_num_types,
@@ -74,18 +78,13 @@ def main(config):
         data_module=dm,
         **vars(config))
     checkpoint_callback = ModelCheckpoint(dirpath=config.ckpt_dir)
-    trainer = Trainer(callbacks=[checkpoint_callback])
+    trainer = Trainer(callbacks=[checkpoint_callback], accelerator=config.accelerator, check_val_every_n_epoch=config.check_val_every_n_epoch)
 
     if config.mode == 'train':
         trainer.fit(model, datamodule=dm,
-                    devices=config.devices,
-                    accelerator=config.accelerator,
-                    ckpt_path=config.resume_ckpt_path,
-                    check_val_every_n_epoch=config.check_val_every_n_epoch)
+                    ckpt_path=config.resume_ckpt_path)
     elif config.mode == 'test':
         trainer.test(model, datamodule=dm,
-                     devices=config.devices,
-                     accelerator=config.accelerator,
                      ckpt_path=config.resume_ckpt_path)
                 
 

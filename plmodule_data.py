@@ -17,16 +17,16 @@ def gen_data_dict(data:SparseMolecularDataset, idx):
     data_dict = {
             "mols": data.data[idx],
             "smlie": data.smiles[idx],
-            "S": data.S[idx],
-            "A": torch.from_numpy(data.A[idx]).long(),
-            "X": torch.from_numpy(data.X[idx]).long(),
-            "D": data.D[idx],
-            "F": data.F[idx],
-            "Le": data.Le[idx],
-            "Lv": data.Lv[idx],
+            "S": data.data_S[idx],
+            "A": torch.from_numpy(data.data_A[idx]).long(),
+            "X": torch.from_numpy(data.data_X[idx]).long(),
+            "D": data.data_D[idx],
+            "F": data.data_F[idx],
+            "Le": data.data_Le[idx],
+            "Lv": data.data_Lv[idx],
     }
-    data_dict["A_onehot"] =label2onehot(data_dict.A, data.bond_num_types)
-    data_dict["X_onehot"] = label2onehot(data_dict.X, data.atom_num_types)
+    data_dict["A_onehot"] =label2onehot(data_dict["A"], data.bond_num_types)
+    data_dict["X_onehot"] = label2onehot(data_dict["X"], data.atom_num_types)
     return data_dict
 
 def all_scores(mols, data, norm=False, reconstruction=False):
