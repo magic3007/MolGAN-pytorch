@@ -66,7 +66,8 @@ def main(config):
     data.load(config.data_dir)
     dm = SparseMolecularDataModule(data=data,
                                    batch_size=config.batch_size,
-                                   num_workers=config.num_workers)
+                                   num_workers=config.num_workers,
+                                   metric=config.metric)
     model = MolGAN(
         num_nodes=dm.vertexes,
         m_dim=dm.atom_num_types,
