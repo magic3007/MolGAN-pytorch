@@ -12,6 +12,7 @@ import torch
 from torch_utils import label2onehot, DictlikeDataset
 from torch.utils.data import DataLoader
 from mol_utils import MolecularMetrics
+import numpy as np
 
 def gen_data_dict(data:SparseMolecularDataset, idx):
     data_dict = {
@@ -28,7 +29,7 @@ def gen_data_dict(data:SparseMolecularDataset, idx):
     data_dict["A_onehot"] =label2onehot(data_dict["A"], data.bond_num_types)
     data_dict["X_onehot"] = label2onehot(data_dict["X"], data.atom_num_types)
     return data_dict
-
+    
 def all_scores(mols, data, norm=False, reconstruction=False):
     m0 = {k: list(filter(lambda e: e is not None, v)) for k, v in {
         'NP': MolecularMetrics.natural_product_scores(mols, norm=norm),
@@ -45,10 +46,12 @@ def all_scores(mols, data, norm=False, reconstruction=False):
     return m0, m1
 
 class SparseMolecularDataModule(LightningDataModule):
-    def __init__(self, data: SparseMolecularDataset, batch_size: int, num_workers: int, shuffle: bool = True,
-                    metric: str = 'all', *args, **kwargs):
+    def __init__(self, data: SparseMolecularDataset, batch_size: int, num_workers: int, 
+                 metric: str,
+                 shuffle: bool = True,
+                     *args, **kwargs):
         super(SparseMolecularDataModule, self).__init__() 
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=['data'])
         self.data = data
         self.dims = (len(data), data.vertexes, data.atom_num_types, data.bond_num_types)
     
@@ -110,13 +113,19 @@ class SparseMolecularDataModule(LightningDataModule):
                 len(self.data.test_idx))
             
     def train_dataloader(self):
-        return DataLoader(self.train_dictlike_data, batch_size=self.hparams.batch_size, shuffle=self.hparams.shuffle, num_workers=self.hparams.num_workers) 
+        return DataLoader(self.train_dictlike_data, 
+                          collate_fn=self.train_dictlike_data.collate_fn,
+                          batch_size=self.hparams.batch_size, shuffle=self.hparams.shuffle, num_workers=self.hparams.num_workers) 
 
     def val_dataloader(self):
-        return DataLoader(self.val_dictlike_data, batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers, shuffle=False)    
+        return DataLoader(self.val_dictlike_data, 
+                          collate_fn=self.val_dictlike_data.collate_fn,
+                          batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers, shuffle=False)    
    
     def test_dataloader(self):
-        return DataLoader(self.test_dictlike_data, batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers, shuffle=False)    
+        return DataLoader(self.test_dictlike_data, 
+                          collate_fn=self.test_dictlike_data.collate_fn,
+                          batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers, shuffle=False)    
     
 if __name__ == '__main__':
     pass

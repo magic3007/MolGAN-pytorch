@@ -12,7 +12,7 @@
     "post_method": "softmax",
     "seed": 42,
     "batch_size": 32,
-    "num_workers": 4,
+    "num_workers": 8,
     "num_epochs": 150,
     "num_sampled_imgs": 10,
     "dropout_rate": 0.0,
@@ -22,10 +22,10 @@
     "data_dir": "data/qm9_5k.sparsedataset",
     "log_step": 1,
     "model_save_step": 1,
-    "optimizer": "adam",
     "lr_g": 1e-3,
     "lr_d": 1e-3,
     "lr_v": 1e-3,
+    "pl_log_name": "lightning_logs",
     "g_conv_dims": [
         128,
         256,
@@ -42,5 +42,6 @@
             64
         ]
     ],
+    "max_epochs": 300,
     "result_dir": "../results/GAN"
 }

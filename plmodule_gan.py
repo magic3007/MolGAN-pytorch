@@ -6,8 +6,6 @@
 # Last Modified Date: 05.19.2022
 # Last Modified By  : Jing Mai <jingmai@pku.edu.cn>
 
-from ast import Pass
-from collections import OrderedDict
 from pytorch_lightning import LightningModule
 from models_gan import Generator, Discriminator
 import torch
@@ -16,6 +14,7 @@ from plmodule_data import SparseMolecularDataModule
 from mol_utils import all_scores, save_mol_img
 import numpy as np
 import os
+import torch.nn as nn
 
 
 class MolGAN(LightningModule):
@@ -41,15 +40,16 @@ class MolGAN(LightningModule):
             b_dim (int): number of bonds in the molecule
         """
         super(MolGAN, self).__init__()
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=['data_module'])
         self.data_module = data_module
+        self.dummy_param = nn.Parameter(torch.empty(0))
 
         # network
         self.G = Generator(conv_dims=g_conv_dims,
                            z_dim=z_dim,
                            vertexes=num_nodes,
                            edges=b_dim,
-                           m_dim=m_dim,
+                           nodes=m_dim,
                            dropout_rate=dropout_rate)
         # TODO(Jing Mai): Why we use `b_dim-1`?
         self.D = Discriminator(conv_dim=d_conv_dims,
@@ -67,8 +67,12 @@ class MolGAN(LightningModule):
         self.automatic_optimization = False
 
         # dynamically adjusted variables
-        self.current_lambda_wgan = None
+        self.current_lambda_wgan = 1
 
+    @property
+    def device(self):
+        return self.dummy_param.device
+    
     @staticmethod
     def postprocess(inputs, method, temperature=1.):
         def listify(x):
@@ -99,11 +103,15 @@ class MolGAN(LightningModule):
     def matrices2mol(self, node_labels, edge_labels, strict):
         return self.data_module.data.matrices2mol(node_labels, edge_labels, strict)
 
-    def get_reward(self, nodes_hat, edges_hat, method):
-        (edges_hard, nodes_hard) = self.postprocess(inputs=(edges_hat, nodes_hat), method=method)
+    def get_gen_mols(self, nodes_hat, edges_hat, method):
+        (edges_hard, nodes_hard) = self.postprocess((edges_hat, nodes_hat), method)
         edges_hard, nodes_hard = torch.max(edges_hard, -1)[1], torch.max(nodes_hard, -1)[1]
-        mols = [self.data.matrices2mol(n_.data.cpu().numpy(), e_.data.cpu().numpy(), strict=True)
+        mols = [self.data_module.data.matrices2mol(n_.data.cpu().numpy(), e_.data.cpu().numpy(), strict=True)
                 for e_, n_ in zip(edges_hard, nodes_hard)]
+        return mols
+
+    def get_reward(self, nodes_hat, edges_hat, method):
+        mols = self.get_gen_mols(nodes_hat, edges_hat, method)
         reward = torch.from_numpy(self.reward(mols))
         return reward
 
@@ -121,19 +129,23 @@ class MolGAN(LightningModule):
             return ((dydx.norm(2, dim=1) - 1) ** 2).mean()
 
         # Random weight term for interpolation between real and fake samples
-        alpha = torch.rand(real_edges.size(0), 1, 1, 1).type_as(real_edges)
+
+        edge_alpha = torch.rand(real_edges.size(0), 1, 1, 1).type_as(real_edges).requires_grad_(False)
+        node_alpha = edge_alpha.reshape(-1, 1, 1).requires_grad_(False)
         # Get random interpolation between real and fake samples
-        edge_interpolates = (alpha * real_edges + ((1 - alpha) * fake_edges)).requires_grad_(True)
-        node_interpolates = (alpha * real_nodes + ((1 - alpha) * fake_nodes)).requires_grad_(True)
+        edge_interpolates = (edge_alpha * real_edges + ((1 - edge_alpha) * fake_edges)).requires_grad_(True)
+        node_interpolates = (node_alpha * real_nodes + ((1 - node_alpha) * fake_nodes)).requires_grad_(True)
 
-        d_edge_interpolates, d_node_interpolates = self.D(edge_interpolates, None, node_interpolates)
+        # enable gradient calculation temporarily, coz the outer validation/test loop will disable it
+        with torch.enable_grad():
+            # FIXME(Jing Mai): Different from the TF code. Both are ok.
+            logits_interpolates, features_interpolates = self.D(edge_interpolates, None, node_interpolates)
+            obj = logits_interpolates.mean() + features_interpolates.mean()
+            edge_gp = gp_norm(obj, edge_interpolates)
+            node_gp = gp_norm(obj, node_interpolates)
 
-        edge_obj = d_edge_interpolates.mean()
-        node_obj = d_node_interpolates.mean()
-        edge_gp = gp_norm(edge_obj, edge_interpolates)
-        node_gp = gp_norm(node_obj, node_interpolates)
-        gradient_penalty = edge_gp + node_gp
-        return gradient_penalty
+        gp = edge_gp + node_gp
+        return gp
 
     def on_train_start(self):
         # The first half epochs use the WGAN objective only
@@ -141,7 +153,7 @@ class MolGAN(LightningModule):
 
     def on_train_epoch_start(self):
         # The second half epochs using both RL and WGAN.
-        if self.current_epoch * 2 >= self.max_epochs:
+        if self.current_epoch * 2 >= self.hparams.max_epochs:
             self.current_lambda_wgan = self.hparams.lambda_wgan
 
     def compute_d_loss(self, batch,  batch_idx, z):
@@ -153,7 +165,7 @@ class MolGAN(LightningModule):
         # pass latent space samples z to target
         edge_logits, node_logits = self.G(z)
         # postprocess with Gumbel softmax
-        (edges_hat, nodes_hat) = self.postprocess(edge_logits, node_logits, method=self.hparams.post_method)
+        (edges_hat, nodes_hat) = self.postprocess(inputs=(edge_logits, node_logits), method=self.hparams.post_method)
         # pass fake samples to discriminator
         logits_fake, features_fake = self.D(edges_hat, None, nodes_hat)
 
@@ -166,9 +178,9 @@ class MolGAN(LightningModule):
 
         output = {
             'd_loss': d_loss,
-            'd_loss/R': d_loss_real,
-            'd_loss/F': d_loss_fake,
-            'd_loss/GP': grad_penalty
+            'd_loss_R': d_loss_real,
+            'd_loss_F': d_loss_fake,
+            'd_loss_GP': grad_penalty
         }
         return output
 
@@ -178,7 +190,7 @@ class MolGAN(LightningModule):
         # pass latent space samples z to target
         edge_logits, node_logits = self.G(z)
         # postprocess with Gumbel softmax
-        edges_hat, nodes_hat = self.postprocess(edge_logits, node_logits, method=self.hparams.post_method)
+        edges_hat, nodes_hat = self.postprocess(inputs=(edge_logits, node_logits), method=self.hparams.post_method)
         # pass fake samples to discriminator
         logits_fake, features_fake = self.D(edges_hat, None, nodes_hat)
 
@@ -189,7 +201,7 @@ class MolGAN(LightningModule):
         # real reward
         reward_real = torch.from_numpy(self.data_module.reward(mols)).type_as(A_onehot)
         # fake reward
-        reward_fake = self.get_reward(nodes_hat, edges_hat)
+        reward_fake = self.get_reward(nodes_hat, edges_hat, method=self.hparams.post_method).type_as(A_onehot)
 
         g_loss = - logits_fake
         v_loss = (value_logit_real - reward_real) ** 2 + (value_logit_fake - reward_fake) ** 2
@@ -213,10 +225,11 @@ class MolGAN(LightningModule):
 
     def get_scores(self, nodes_logits, edges_logits, post_method):
         mols = self.get_gen_mols(nodes_logits, edges_logits, post_method)
-        m0, m1 = all_scores(mols, self.data, norm=True)  # 'mols' is output of Fake Reward
+        m0, m1 = all_scores(mols, self.data_module.data, norm=True)  # 'mols' is output of Fake Reward
         scores = m1.copy()
         for k, v in m0.items():
-            scores[k] = np.array(v)[np.nonzero(v)].mean()
+            d = np.array(v)[np.nonzero(v)]
+            scores[k] = 0 if len(d) ==0 else d.mean()
         return scores
 
     def training_step(self, batch, batch_idx):
@@ -227,7 +240,7 @@ class MolGAN(LightningModule):
         #                       Train Discriminator                  #
         # ========================================================== #
         # sample noise
-        z = torch.randn(A_onehot.shape[0], self.z_dim).type_as(A_onehot)
+        z = torch.randn(A_onehot.shape[0], self.hparams.z_dim).type_as(A_onehot)
         d_loss_dict = self.compute_d_loss(batch, batch_idx, z)
         # back propagate discriminator's gradient if `current_lambda_wgan` is greater than zero.
         if self.current_lambda_wgan > 0:
@@ -254,13 +267,15 @@ class MolGAN(LightningModule):
 
     def training_epoch_end(self, outputs):
         keys = outputs[0].keys()
-        avg_output = {k: torch.stack([x[k] for x in outputs]).mean().item() for k in keys}
-        self.log_dict(avg_output, prefix='train_')
+        avg_output = {k: torch.stack([x[k] for x in outputs]).mean() for k in keys}
+        prefix = 'train/'
+        metrics = {prefix + k: v for k, v in metrics.items()}
+        self.log_dict(avg_output)
 
     def _shared_eval_step(self, batch, batch_idx):
         mols, A_onehot, X_onehot = batch['mols'], batch['A_onehot'], batch['X_onehot']
         # sample noise
-        z = torch.randn(A_onehot.shape[0], self.z_dim).type_as(A_onehot)
+        z = torch.randn(A_onehot.shape[0], self.hparams.z_dim).type_as(A_onehot)
         edge_logits, node_logits = self.G(z)
         d_loss_dict = self.compute_d_loss(batch, batch_idx, z)
         gv_loss_dict = self.compute_gv_loss(batch, batch_idx, z)
@@ -278,16 +293,27 @@ class MolGAN(LightningModule):
 
     def _shared_eval_epoch_end(self, outputs):
         keys = outputs[0].keys()
-        avg_output = {k: torch.stack([x[k] for x in outputs]).mean().item() for k in keys}
+        def arraylike_mean(x_list):
+            if isinstance(x_list[0], torch.Tensor):
+                return torch.stack(x_list).mean()
+            elif isinstance(x_list[0], np.ndarray):
+                return np.stack(x_list).mean()
+            else:
+                return np.array(x_list).mean()
+        avg_output = {k: arraylike_mean([x[k] for x in outputs]) for k in keys}
         return avg_output
 
     def validation_epoch_end(self, outputs):
         metrics = self._shared_eval_epoch_end(outputs)
-        self.log_dict(metrics, prefix='val_')
+        prefix = 'val/'
+        metrics = {prefix + k: v for k, v in metrics.items()}
+        self.log_dict(metrics)
 
     def test_epoch_end(self, outputs):
         metrics = self._shared_eval_epoch_end(outputs)
-        self.log_dict(metrics, prefix='test_')
+        prefix = 'test/'
+        metrics = {prefix + k: v for k, v in metrics.items()}
+        self.log_dict(metrics)
 
     def configure_optimizers(self):
         self.opt_g = torch.optim.Adam(self.G.parameters(), lr=self.hparams.lr_g)
@@ -296,8 +322,8 @@ class MolGAN(LightningModule):
         return self.opt_g, self.opt_d, self.opt_v
 
     def on_epoch_end(self):
-        edges_logits, nodes_logits = self.G(self.sampled_img_z)
+        edges_logits, nodes_logits = self.G(self.sampled_img_z.to(self.device))
         mols = self.get_gen_mols(nodes_logits, edges_logits, self.hparams.post_method)
         # Saving molecule images.
-        mol_f_name = os.path.join(self.hparams.img_dir_path, 'mol-{}.png'.format(self.current_epoch))
+        mol_f_name = os.path.join(self.hparams.img_dir, 'mol-{}.png'.format(self.current_epoch))
         save_mol_img(mols, mol_f_name, is_test=self.hparams.mode == 'test')

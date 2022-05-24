@@ -15,8 +15,13 @@ from plmodule_gan import MolGAN
 from data.sparse_molecular_dataset import SparseMolecularDataset
 from plmodule_data import SparseMolecularDataModule
 from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import ModelCheckpoint
-import torch
+from pytorch_lightning.callbacks import ModelCheckpoint, ModelSummary
+from pytorch_lightning.loggers import TensorBoardLogger
+from rdkit import RDLogger
+
+# Remove flooding logs from `rdkit`
+lg = RDLogger.logger()
+lg.setLevel(RDLogger.CRITICAL)
 
 log = logging.getLogger(__name__)
 
@@ -77,8 +82,13 @@ def main(config):
         b_dim=dm.bond_num_types,
         data_module=dm,
         **vars(config))
-    checkpoint_callback = ModelCheckpoint(dirpath=config.ckpt_dir)
-    trainer = Trainer(callbacks=[checkpoint_callback], accelerator=config.accelerator, check_val_every_n_epoch=config.check_val_every_n_epoch)
+    os.makedirs(os.path.join(config.log_dir, config.pl_log_name), exist_ok=True)
+    logger = TensorBoardLogger(save_dir=config.log_dir, name=config.pl_log_name)
+    trainer = Trainer(callbacks=[ModelCheckpoint(dirpath=config.ckpt_dir),
+                                 ModelSummary(max_depth=-1)], accelerator=config.accelerator,
+                      check_val_every_n_epoch=config.check_val_every_n_epoch,
+                      max_epochs=config.max_epochs,
+                      logger=logger)
 
     if config.mode == 'train':
         trainer.fit(model, datamodule=dm,
@@ -86,7 +96,7 @@ def main(config):
     elif config.mode == 'test':
         trainer.test(model, datamodule=dm,
                      ckpt_path=config.resume_ckpt_path)
-                
+
 
 if __name__ == '__main__':
     config = get_GAN_config()
