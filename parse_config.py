@@ -31,6 +31,7 @@ def get_GAN_config():
     # Data Config
 
     # Training or Testing Config
+    parser.add_argument('--lambda_wgan', type=float, help='weight of the wgan loss')
 
     # Result Config
     parser.add_argument('--result_dir', type=str, help='Directory to save results')
