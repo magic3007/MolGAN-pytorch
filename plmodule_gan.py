@@ -15,8 +15,9 @@ from mol_utils import all_scores, save_mol_img
 import numpy as np
 import os
 import torch.nn as nn
+import logging 
 
-
+logger = logging.getLogger(__name__) 
 class MolGAN(LightningModule):
     def __init__(self,
                  z_dim,
@@ -245,7 +246,7 @@ class MolGAN(LightningModule):
         # back propagate discriminator's gradient if `current_lambda_wgan` is greater than zero.
         if self.current_lambda_wgan > 0:
             opt_d.zero_grad()
-            self.manual_backward(d_loss_dict['d_loss'], opt_d)
+            self.manual_backward(d_loss_dict['d_loss'])
             opt_d.step()
 
         # ========================================================== #
@@ -256,9 +257,9 @@ class MolGAN(LightningModule):
         if (self.global_step + 1) % self.hparams.n_critic == 0:
             opt_g.zero_grad()
             opt_v.zero_grad()
-            self.manual_backward(gv_loss_dict['train_step_G'], opt_g, retain_graph=True)
+            self.manual_backward(gv_loss_dict['train_step_G'], retain_graph=True)
+            self.manual_backward(gv_loss_dict['train_step_V'])
             opt_g.step()
-            self.manual_backward(gv_loss_dict['train_step_V'], opt_v)
             opt_v.step()
 
         output = dict(d_loss_dict, **gv_loss_dict)
@@ -269,8 +270,11 @@ class MolGAN(LightningModule):
         keys = outputs[0].keys()
         avg_output = {k: torch.stack([x[k] for x in outputs]).mean() for k in keys}
         prefix = 'train/'
-        metrics = {prefix + k: v for k, v in metrics.items()}
-        self.log_dict(avg_output)
+        metrics = {prefix + k: v for k, v in avg_output.items()}
+        self.log_dict(metrics)
+        log_str = "Epoch {}/{}: ".format(self.current_epoch, self.hparams.max_epochs)
+        log_str += ', '.join(['{}: {}'.format(k, v) for k, v in metrics.items()])
+        logger.info(log_str)
 
     def _shared_eval_step(self, batch, batch_idx):
         mols, A_onehot, X_onehot = batch['mols'], batch['A_onehot'], batch['X_onehot']
@@ -308,12 +312,18 @@ class MolGAN(LightningModule):
         prefix = 'val/'
         metrics = {prefix + k: v for k, v in metrics.items()}
         self.log_dict(metrics)
+        log_str = "Epoch {}/{}: ".format(self.current_epoch, self.hparams.max_epochs)
+        log_str += ', '.join(['{}: {}'.format(k, v) for k, v in metrics.items()])
+        logger.info(log_str)
 
     def test_epoch_end(self, outputs):
         metrics = self._shared_eval_epoch_end(outputs)
         prefix = 'test/'
         metrics = {prefix + k: v for k, v in metrics.items()}
         self.log_dict(metrics)
+        log_str = "Epoch {}/{}: ".format(self.current_epoch, self.hparams.max_epochs)
+        log_str += ', '.join(['{}: {}'.format(k, v) for k, v in metrics.items()])
+        logger.info(log_str)
 
     def configure_optimizers(self):
         self.opt_g = torch.optim.Adam(self.G.parameters(), lr=self.hparams.lr_g)
@@ -321,7 +331,7 @@ class MolGAN(LightningModule):
         self.opt_v = torch.optim.Adam(self.V.parameters(), lr=self.hparams.lr_v)
         return self.opt_g, self.opt_d, self.opt_v
 
-    def on_epoch_end(self):
+    def on_val_epoch_end(self):
         edges_logits, nodes_logits = self.G(self.sampled_img_z.to(self.device))
         mols = self.get_gen_mols(nodes_logits, edges_logits, self.hparams.post_method)
         # Saving molecule images.

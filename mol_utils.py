@@ -343,7 +343,7 @@ def save_mol_img(mols, f_name='tmp.png', is_test=False):
     for a_mol in mols:
         try:
             if Chem.MolToSmiles(a_mol) is not None:
-                print('Generating molecule')
+                print('Generating molecule Image')
 
                 if is_test:
                     f_name = orig_f_name
