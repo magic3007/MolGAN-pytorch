@@ -1,0 +1,5 @@
+torch == 1.11.0+cu102
+pytorch_lightning == 1.6.3
+numpy == 1.21.5
+pysmiles
+rdkit-pypi

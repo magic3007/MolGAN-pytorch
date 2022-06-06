@@ -4,13 +4,15 @@
 
 ## Installation
 
-#### Dependency
+### Dependency
 
 ```bash
 pip install -r requirements.txt
 ```
 
-#### Dataset Generation
+If you still run into `no-such-package` issues, you may just install the required packages by pip or conda.
+
+### Dataset Generation
 
 ```bash
 # Download gdb Dataset and NP/SA scores
