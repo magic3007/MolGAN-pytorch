@@ -130,7 +130,6 @@ class MolGAN(LightningModule):
             return ((dydx.norm(2, dim=1) - 1) ** 2).mean()
 
         # Random weight term for interpolation between real and fake samples
-
         edge_alpha = torch.rand(real_edges.size(0), 1, 1, 1).type_as(real_edges).requires_grad_(False)
         node_alpha = edge_alpha.reshape(-1, 1, 1).requires_grad_(False)
         # Get random interpolation between real and fake samples
@@ -330,10 +329,16 @@ class MolGAN(LightningModule):
         self.opt_d = torch.optim.Adam(self.D.parameters(), lr=self.hparams.lr_d)
         self.opt_v = torch.optim.Adam(self.V.parameters(), lr=self.hparams.lr_v)
         return self.opt_g, self.opt_d, self.opt_v
-
-    def on_val_epoch_end(self):
+    
+    def _shared_on_eval_epoch_end(self):
         edges_logits, nodes_logits = self.G(self.sampled_img_z.to(self.device))
         mols = self.get_gen_mols(nodes_logits, edges_logits, self.hparams.post_method)
         # Saving molecule images.
         mol_f_name = os.path.join(self.hparams.img_dir, 'mol-{}.png'.format(self.current_epoch))
-        save_mol_img(mols, mol_f_name, is_test=self.hparams.mode == 'test')
+        save_mol_img(mols, mol_f_name, is_test=True)
+        
+    def on_val_epoch_end(self):
+        self._shared_on_eval_epoch_end()
+        
+    def on_test_epoch_end(self):
+        self._shared_on_eval_epoch_end()

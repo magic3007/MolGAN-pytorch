@@ -355,9 +355,5 @@ def save_mol_img(mols, f_name='tmp.png', is_test=False):
                 a_smi = Chem.MolToSmiles(a_mol)
                 mol_graph = read_smiles(a_smi)
 
-                break
-
-                # if not is_test:
-                #     break
         except:
             continue

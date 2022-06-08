@@ -32,6 +32,7 @@ def get_GAN_config():
 
     # Training or Testing Config
     parser.add_argument('--lambda_wgan', type=float, help='weight of the wgan loss')
+    parser.add_argument('--resume_ckpt_path', type=str, help='resume training from the checkpoint')
 
     # Result Config
     parser.add_argument('--result_dir', type=str, help='Directory to save results')

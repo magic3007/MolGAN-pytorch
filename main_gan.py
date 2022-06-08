@@ -93,6 +93,8 @@ def main(config):
     if config.mode == 'train':
         trainer.fit(model, datamodule=dm,
                     ckpt_path=config.resume_ckpt_path)
+        trainer.test(model, datamodule=dm,
+                    ckpt_path=config.resume_ckpt_path)
     elif config.mode == 'test':
         trainer.test(model, datamodule=dm,
                      ckpt_path=config.resume_ckpt_path)
